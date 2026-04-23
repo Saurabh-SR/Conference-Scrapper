@@ -9,7 +9,7 @@ def is_company(name: str) -> bool:
 
     name = name.strip()
 
-    if len(name) < 3 or len(name) > 80:
+    if len(name) < 3 or len(name) > 60:
         return False
 
     blacklist = [
@@ -19,27 +19,39 @@ def is_company(name: str) -> bool:
         "home", "menu", "search", "hours",
         "industry", "solutions", "technology",
         "system", "event", "read more", "click",
-        "learn", "explore"
+        "learn", "explore", "why", "book", "info",
+        "partner", "sponsor", "exhibit"
     ]
 
     if any(b in name.lower() for b in blacklist):
         return False
 
-    if "@" in name or re.search(r"\d{4,}", name):
+    if "@" in name or re.search(r"\d{5,}", name):
         return False
 
     if re.match(r"^[A-Z]{1,3}\d{1,3}", name):
         return False
 
-    strong_keywords = ["ltd", "pvt", "inc", "llc", "llp", "corporation", "co."]
+    words = name.split()
+
+    if len(words) > 5:
+        return False
+
+    if not re.search(r"[A-Za-z]", name):
+        return False
+
+    if words[0].islower():
+        return False
+
+    strong_keywords = ["ltd", "pvt", "inc", "llc", "llp", "corporation", "co", "limited"]
 
     if any(k in name.lower() for k in strong_keywords):
         return True
 
-    if name.isupper() and len(name.split()) <= 5:
+    if name.isupper() and len(words) <= 4:
         return True
 
-    if len(name.split()) >= 2 and name[0].isupper():
+    if len(words) >= 2:
         return True
 
     return False
@@ -56,55 +68,7 @@ def auto_scroll(page):
         prev_height = curr_height
 
 
-def extract_from_cards(page):
-    results = []
-    seen = set()
-
-    cards = page.locator("div, li, article")
-
-    for i in range(cards.count()):
-        try:
-            card = cards.nth(i)
-
-            text = card.inner_text().strip()
-            if not text:
-                continue
-
-            lines = text.split("\n")
-            name = lines[0].strip()
-
-            if not is_company(name):
-                continue
-
-            img = card.locator("img").first
-            logo = ""
-
-            if img.count() > 0:
-                src = img.get_attribute("src") or ""
-                if src.startswith("//"):
-                    src = "https:" + src
-                if src.startswith("/"):
-                    src = page.url.rstrip("/") + src
-                logo = src
-
-            key = name.lower()
-            if key in seen:
-                continue
-
-            seen.add(key)
-
-            results.append({
-                "Company Name": name,
-                "Logo": logo
-            })
-
-        except:
-            continue
-
-    return results
-
-
-def extract_from_images(page):
+def extract_from_images_with_context(page):
     results = []
     seen = set()
 
@@ -114,24 +78,33 @@ def extract_from_images(page):
         try:
             img = images.nth(i)
 
-            alt = (img.get_attribute("alt") or "").strip()
             src = img.get_attribute("src") or ""
-
             if not src:
                 continue
 
             if src.startswith("//"):
                 src = "https:" + src
 
+            if src.startswith("/"):
+                src = page.url.rstrip("/") + src
+
             if not src.startswith("http"):
                 continue
 
+            alt = (img.get_attribute("alt") or "").strip()
+
             name = alt
+
+            if not is_company(name):
+                parent = img.locator("xpath=ancestor::*[self::div or self::li][1]")
+                text = (parent.inner_text() or "").strip()
+                name = text.split("\n")[0]
 
             if not is_company(name):
                 continue
 
             key = name.lower()
+
             if key in seen:
                 continue
 
@@ -148,24 +121,56 @@ def extract_from_images(page):
     return results
 
 
+def extract_text_fallback(page):
+    results = []
+    seen = set()
+
+    elements = page.locator("h1, h2, h3, h4, a")
+
+    for i in range(elements.count()):
+        try:
+            text = elements.nth(i).inner_text().strip()
+
+            if not is_company(text):
+                continue
+
+            key = text.lower()
+
+            if key in seen:
+                continue
+
+            seen.add(key)
+
+            results.append({
+                "Company Name": text,
+                "Logo": ""
+            })
+
+        except:
+            continue
+
+    return results
+
+
 def run_scraper(url):
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)
         page = browser.new_page()
 
         print(f"Opening: {url}")
-        page.goto(url, timeout=60000, wait_until="domcontentloaded")
+        page.goto(url, timeout=90000, wait_until="domcontentloaded")
 
         page.wait_for_timeout(5000)
         auto_scroll(page)
 
         data = []
 
-        print("Extracting from structured cards...")
-        data.extend(extract_from_cards(page))
+        print("Extracting from images with context...")
+        data.extend(extract_from_images_with_context(page))
 
-        print("Extracting from images...")
-        data.extend(extract_from_images(page))
+        if len(data) < 20:
+            print("Fallback: extracting from text...")
+            data.extend(extract_text_fallback(page))
 
         browser.close()
 
