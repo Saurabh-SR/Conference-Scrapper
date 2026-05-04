@@ -19,15 +19,12 @@ def is_valid_company(name):
 
     name = normalize(name)
 
-    # length check
     if len(name) < 3 or len(name) > 80:
         return False
 
-    # must contain letters
     if not re.search(r"[A-Za-z]", name):
         return False
 
-    # remove obvious noise
     blacklist = {
         "visit", "exhibit", "home", "search",
         "industries", "government", "education",
@@ -39,7 +36,6 @@ def is_valid_company(name):
     if name.lower() in blacklist:
         return False
 
-    # reject too generic words
     if len(name.split()) == 1 and not name.isupper():
         return False
 
@@ -58,17 +54,15 @@ def extract_companies(page):
         current = lines[i]
         nxt = lines[i + 1]
 
-        # pattern: booth -> company
+        # still use booth pattern for detection, but DO NOT store booth
         if is_booth(current) and is_valid_company(nxt):
             name = nxt
-            booth = current
 
-            key = (name.lower(), booth)
+            key = name.lower()
             if key not in seen:
                 seen.add(key)
                 results.append({
-                    "Company Name": name,
-                    "Booth": booth
+                    "Company Name": name
                 })
 
             i += 2
